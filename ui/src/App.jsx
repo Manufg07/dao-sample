@@ -325,40 +325,69 @@ const App = () => {
     issueDate: "",
   });
 
-  useEffect(() => {
-    const init = async () => {
-      if (window.ethereum) {
-        const browserProvider = new ethers.BrowserProvider(window.ethereum);
-        const signerInstance = await browserProvider.getSigner();
-        setProvider(browserProvider);
-        setSigner(signerInstance);
+useEffect(() => {
+  const init = async () => {
+    if (window.ethereum) {
+      const browserProvider = new ethers.BrowserProvider(window.ethereum);
+      const signerInstance = await browserProvider.getSigner();
 
-        setCertContract(
-          new ethers.Contract(
-            contracts.cert.address,
-            contracts.cert.abi,
-            signerInstance
-          )
-        );
-        setGovernorContract(
-          new ethers.Contract(
-            contracts.governor.address,
-            contracts.governor.abi,
-            signerInstance
-          )
-        );
-
-        fetchCertificates();
-      } else {
-        toast.error("Please install MetaMask.");
+      if (!signerInstance) {
+        toast.error("Failed to get signer. Please reconnect your wallet.");
+        return;
       }
-    };
-    init();
-  }, []);
+
+      setProvider(browserProvider);
+      setSigner(signerInstance);
+
+      setCertContract(
+        new ethers.Contract(
+          contracts.cert.address,
+          contracts.cert.abi,
+          signerInstance
+        )
+      );
+      setGovernorContract(
+        new ethers.Contract(
+          contracts.governor.address,
+          contracts.governor.abi,
+          signerInstance
+        )
+      );
+
+      fetchCertificates();
+    } else {
+      toast.error("Please install MetaMask.");
+    }
+  };
+  init();
+}, []);
+
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setCertificateData({ ...certificateData, [name]: value });
+  };
+
+  const delegateTokens = async () => {
+    try {
+      setLoading(true);
+      const tokenContract = new ethers.Contract(
+        contracts.govToken.address,
+        contracts.govToken.abi,
+        signer
+      );
+
+      const userAddress = await signer.getAddress();
+      const tx = await tokenContract.delegate(userAddress);
+      await tx.wait();
+
+      toast.success("Tokens delegated successfully!");
+    } catch (error) {
+      console.error("Delegation Error:", error);
+      toast.error("Failed to delegate tokens.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const proposeCertificate = async () => {
@@ -425,53 +454,74 @@ const App = () => {
     }
   };
 
-const voteOnProposal = async () => {
-  if (!proposalId) return toast.error("No active proposal to vote on.");
-
+const checkVotingPower = async () => {
   try {
-    setLoading(true);
-
-    let state = await governorContract.state(proposalId);
-
-    if (state === 0) {
-      // "Pending" state
-      toast.info("Proposal is pending. Waiting for it to become active...");
-
-      let retries = 10; // Max 10 attempts (50 seconds)
-      while (retries > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 sec
-        state = await governorContract.state(proposalId);
-        if (state === 1) break; // 1 = "Active"
-        retries--;
-      }
-
-      if (state !== 1) {
-        toast.error("Proposal did not become active in time.");
-        return;
-      }
+    if (!signer) {
+      console.error("Error: Signer is not initialized.");
+      toast.error("Wallet not connected. Please connect your wallet.");
+      return false;
     }
 
-    if (state !== 1) {
-      return toast.error("Proposal is not active for voting.");
-    }
-
-    const tx = await governorContract.castVoteWithReason(
-      proposalId,
-      1, // 1 = "For"
-      "Supporting certificate issuance",
-      { gasLimit: 500000 }
+    const tokenContract = new ethers.Contract(
+      contracts.govToken.address,
+      contracts.govToken.abi,
+      signer
     );
-    await tx.wait();
 
-    fetchProposalState(proposalId);
-    toast.success("Vote cast successfully!");
+    const userAddress = await signer.getAddress();
+    console.log("User Address:", userAddress);
+
+    const balance = await tokenContract.getVotes(userAddress);
+    console.log("Raw Balance:", balance);
+
+    if (!balance) {
+      toast.error("You have no voting power. Delegate your tokens first.");
+      return false;
+    }
+
+    return true;
   } catch (error) {
-    console.error("Voting Error:", error);
-    toast.error("Failed to cast vote.");
-  } finally {
-    setLoading(false);
+    console.error("Error checking voting power:", error);
+    toast.error("Failed to check voting power.");
+    return false;
   }
 };
+
+
+ const voteOnProposal = async () => {
+   if (!signer) {
+     toast.error("Wallet not connected. Please connect your wallet.");
+     return;
+   }
+
+   if (!proposalId) {
+     toast.error("No active proposal to vote on.");
+     return;
+   }
+
+   try {
+     setLoading(true);
+
+     const hasPower = await checkVotingPower();
+     if (!hasPower) return;
+
+     const tx = await governorContract.castVoteWithReason(
+       proposalId,
+       1, // 1 = "For"
+       "Supporting certificate issuance",
+       { gasLimit: 500000 }
+     );
+     await tx.wait();
+
+     fetchProposalState(proposalId);
+     toast.success("Vote cast successfully!");
+   } catch (error) {
+     console.error("Voting Error:", error);
+     toast.error("Failed to cast vote.");
+   } finally {
+     setLoading(false);
+   }
+ };
 
   const executeProposal = async () => {
     if (!proposalId) return toast.error("No proposal to execute.");
@@ -599,20 +649,25 @@ const voteOnProposal = async () => {
           {proposalId && (
             <div className="mt-3">
               <h5>Proposal ID: {proposalId.toString()}</h5>
-              <h6>Status: {proposalState || "Fetching..."}</h6>
+              <h6>State: {proposalState}</h6>
             </div>
           )}
         </div>
 
         <div className="col-md-6">
           <h3>Certificates</h3>
-          <ul className="list-group">
-            {certificates.map((cert) => (
-              <li key={cert.id} className="list-group-item">
-                <strong>{cert.name}</strong> - {cert.program} ({cert.grade})
-              </li>
-            ))}
-          </ul>
+          {certificates.length === 0 ? (
+            <p>No certificates issued yet.</p>
+          ) : (
+            <ul className="list-group">
+              {certificates.map((cert) => (
+                <li key={cert.id} className="list-group-item">
+                  {cert.id}: {cert.name} - {cert.program} - {cert.grade} (
+                  {cert.issueDate})
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>
