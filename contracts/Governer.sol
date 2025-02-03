@@ -8,7 +8,7 @@ import {GovernorVotesQuorumFraction} from "@openzeppelin/contracts/governance/ex
 import {GovernorTimelockControl} from "@openzeppelin/contracts/governance/extensions/GovernorTimelockControl.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import "./Certi.sol"; 
+import {IERC165} from "@openzeppelin/contracts/interfaces/IERC165.sol";
 
 contract MyGovernor is
     Governor,
@@ -17,24 +17,24 @@ contract MyGovernor is
     GovernorVotesQuorumFraction,
     GovernorTimelockControl
 {
-    address public certContract;  // Store Cert contract address
-
     constructor(
         IVotes _token,
         TimelockController _timelock
     ) Governor("MyGovernor") GovernorVotes(_token) GovernorVotesQuorumFraction(4) GovernorTimelockControl(_timelock) {}
 
     function votingDelay() public pure override returns (uint256) {
-        return 1; // Blocks before voting starts
+        return 10;
     }
 
     function votingPeriod() public pure override returns (uint256) {
-        return 10; // Blocks (Adjust as needed)
+        return 10; // 1 week
     }
 
     function proposalThreshold() public pure override returns (uint256) {
-        return 0; // No minimum voting power required
+        return 0;
     }
+
+    // The functions below are overrides required by Solidity.
 
     function state(uint256 proposalId) public view override(Governor, GovernorTimelockControl) returns (ProposalState) {
         return super.state(proposalId);
@@ -44,18 +44,6 @@ contract MyGovernor is
         uint256 proposalId
     ) public view virtual override(Governor, GovernorTimelockControl) returns (bool) {
         return super.proposalNeedsQueuing(proposalId);
-    }
-
-    /// @notice Function to set the Cert contract address (Can be called once)
-    function setCertContract(address _certAddress) external onlyGovernance {
-        require(certContract == address(0), "Cert contract already set");
-        certContract = _certAddress;
-    }
-
-    /// @notice Transfers Cert ownership to Timelock
-    function transferCertOwnership() public onlyGovernance {
-        require(certContract != address(0), "Cert contract not set");
-        Cert(certContract).transferOwnership(_executor());  // Transfer ownership to Timelock
     }
 
     function _queueOperations(
@@ -76,21 +64,6 @@ contract MyGovernor is
         bytes32 descriptionHash
     ) internal override(Governor, GovernorTimelockControl) {
         super._executeOperations(proposalId, targets, values, calldatas, descriptionHash);
-
-        // Execute Cert contract calls only if valid function
-        for (uint256 i = 0; i < targets.length; i++) {
-            if (targets[i] == certContract) {
-                require(certContract != address(0), "Cert contract not set");
-                
-                // Ensure the calldata is valid (e.g., function signature exists)
-                (bool success, ) = targets[i].call{value: values[i]}(calldatas[i]);
-                require(success, "Governor execution failed");
-            }
-        }
-    }
-
-    function _executor() internal view override(Governor, GovernorTimelockControl) returns (address) {
-        return super._executor();
     }
 
     function _cancel(
@@ -100,5 +73,9 @@ contract MyGovernor is
         bytes32 descriptionHash
     ) internal override(Governor, GovernorTimelockControl) returns (uint256) {
         return super._cancel(targets, values, calldatas, descriptionHash);
+    }
+
+    function _executor() internal view override(Governor, GovernorTimelockControl) returns (address) {
+        return super._executor();
     }
 }

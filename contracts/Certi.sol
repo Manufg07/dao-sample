@@ -4,35 +4,29 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Cert is Ownable {
-    constructor(address initialOwner) Ownable(initialOwner) {}
 
-    struct Certificate {
-        string name;
-        string course;
-        string grade;
-        string date;
-    }
+    constructor(address initialOwner)
+        Ownable(initialOwner)
+    {}
 
-    mapping(uint256 => Certificate) public certificates;
+  struct Certificate {
+      string name;
+      string course;
+      string grade;
+      string date;
+  }
 
-    event CertificateIssued(uint256 certificateId, string issueDate);
-    event CertificateRevoked(uint256 certificateId);
+  mapping (uint256 => Certificate) public Certificates;
 
-    function issue(
-        uint256 _id,
-        string memory _name,
-        string memory _course,
-        string memory _grade,
-        string memory _date
-    ) public onlyOwner {
-        require(bytes(certificates[_id].name).length == 0, "Certificate already exists");
-        certificates[_id] = Certificate(_name, _course, _grade, _date);
-        emit CertificateIssued(_id, _date);
-    }
+  event issued(uint256 cid, string cidate);
 
-    function revoke(uint256 _id) public onlyOwner {
-        require(bytes(certificates[_id].name).length != 0, "Certificate does not exist");
-        delete certificates[_id];
-        emit CertificateRevoked(_id);
-    }
+  function issue (
+      uint256 _id,
+      string memory _name,
+      string memory _course,
+      string memory _grade,
+      string memory _date) public onlyOwner {
+          Certificates[_id] = Certificate(_name, _course, _grade, _date);
+          emit issued(_id, _date);
+      }
 }
