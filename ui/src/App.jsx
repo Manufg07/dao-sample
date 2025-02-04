@@ -497,133 +497,122 @@ const App = () => {
   };
 
   // Update executeProposal function
-  const executeProposal = async () => {
-    if (!currentProposal) return toast.error("No proposal data found.");
+const executeProposal = async () => {
+  if (!currentProposal) return toast.error("No proposal data found.");
 
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
 
-      // 1. Verify pre-execution state
-      const preState = await governorContract.state(proposalId);
-      console.log("Pre-execution state:", Number(preState));
+    // 1. Verify pre-execution state
+    const preState = await governorContract.state(proposalId);
+    console.log("Pre-execution state:", Number(preState));
 
-      // 2. Execute proposal with error handling
-      const descriptionHash = ethers.keccak256(
-        ethers.toUtf8Bytes(currentProposal.description)
-      );
+    // 2. Execute proposal
+    const descriptionHash = ethers.keccak256(
+      ethers.toUtf8Bytes(currentProposal.description)
+    );
 
-      const calldata = certContract.interface.encodeFunctionData("issue", [
-        Number(currentProposal.certId),
-        currentProposal.name,
-        currentProposal.course,
-        currentProposal.grade,
-        currentProposal.date,
-      ]);
+    const calldata = certContract.interface.encodeFunctionData("issue", [
+      Number(currentProposal.certId),
+      currentProposal.name,
+      currentProposal.course,
+      currentProposal.grade,
+      currentProposal.date,
+    ]);
 
-      const tx = await governorContract.execute(
-        [contracts.cert.address],
-        [0],
-        [calldata],
-        descriptionHash,
-        { gasLimit: 1_000_000 }
-      );
+    const tx = await governorContract.execute(
+      [contracts.cert.address],
+      [0],
+      [calldata],
+      descriptionHash,
+      { gasLimit: 1_000_000 }
+    );
 
-      // 3. Wait for transaction confirmation
-      const receipt = await tx.wait(2);
-      console.log("Transaction confirmed:", receipt.status);
+    // 3. Wait for confirmation
+    const receipt = await tx.wait(2);
+    console.log("Transaction confirmed:", receipt.status);
 
-      // 4. Verify post-execution state
-      const postState = await governorContract.state(proposalId);
-      console.log("Post-execution state:", Number(postState));
+    // 4. Verify post-execution state
+    const postState = await governorContract.state(proposalId);
+    console.log("Post-execution state:", Number(postState));
 
-      if (Number(postState) === 7) {
-        // 7 = Executed
-        toast.success("✅ Execution confirmed!");
-        // Force refresh certificates immediately
-        await fetchCertificates();
-        // Additional check after 5 seconds
-        setTimeout(fetchCertificates, 5000);
-      } else {
-        toast.error("❌ State update failed");
-      }
-    } catch (error) {
-      console.error("Execution Error:", error);
-      // Handle specific error cases
-      if (error.code === "CALL_EXCEPTION") {
-        toast.error("Contract execution reverted");
-      } else {
-        toast.error(`Execution failed: ${error.code || error.message}`);
-      }
-    } finally {
-      setLoading(false);
+    if (Number(postState) === 7) {
+      // 7 = Executed
+      toast.success("✅ Execution confirmed!");
+      await fetchCertificates();
+    } else {
+      toast.error("❌ State update failed");
     }
-  };
+  } catch (error) {
+    console.error("Execution Error:", error);
+    toast.error(`Execution failed: ${error.code || error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Enhanced event listener
-  useEffect(() => {
-    if (!certContract) return;
+useEffect(() => {
+  if (!certContract) return;
 
-    const filter = certContract.filters.issued();
-    const listener = (event) => {
-      try {
-        // Handle different ethers.js versions
-        const certId = event.args?.cid ?? event.args?.[0];
-
-        // Convert to number safely
-        const idNumber = certId._isBigNumber
-          ? certId.toNumber()
-          : parseInt(certId, 10);
-
-        if (!isNaN(idNumber)) {
-          toast.success(`New certificate detected: ID ${idNumber}`);
-          fetchCertificates();
-        }
-      } catch (error) {
-        console.error("Event Error:", {
-          error,
-          event,
-          certContract: certContract.target,
-        });
-      }
-    };
-
-    certContract.on(filter, listener);
-    return () => certContract.off(filter, listener);
-  }, [certContract]);
-
-  // Update fetchCertificates function
-  const fetchCertificates = async () => {
-    setIsCertificatesLoading(true);
+  const filter = certContract.filters.issued();
+  const listener = (...args) => {
     try {
-      const certificatesList = [];
-      let counter = 1;
-      const maxAttempts = 20; // Prevent infinite loops
+      // Handle different event formats
+      const event = args[0].args ? args[0] : { args: args };
 
-      while (counter <= maxAttempts) {
-        try {
-          const cert = await certContract.certificates(counter);
-          if (cert.name !== "") {
-            certificatesList.push({
-              id: counter,
-              name: cert.name,
-              course: cert.course,
-              grade: cert.grade,
-              date: cert.date, // Store as raw string
-            });
-          }
-          counter++;
-        } catch (error) {
-          break;
-        }
-      }
+      // Convert BigNumber to number safely
+      const rawCertId = event.args[0];
+      const certId = parseInt(rawCertId.toString(), 10);
 
-      setCertificates(certificatesList);
+      console.log("New certificate processed:", certId);
+      toast.success(`New certificate detected: ID ${certId}`);
+      fetchCertificates();
     } catch (error) {
-      toast.error("Error fetching certificates: " + error.message);
-    } finally {
-      setIsCertificatesLoading(false);
+      console.error("Event processing error:", error);
     }
   };
+
+  certContract.on(filter, listener);
+  return () => certContract.off(filter, listener);
+}, [certContract]);
+
+  // Update fetchCertificates function
+const fetchCertificates = async () => {
+  setIsCertificatesLoading(true);
+  try {
+    const certificatesList = [];
+    let id = 1;
+    const maxAttempts = 100; // Adjust based on expected certificate count
+
+    while (id <= maxAttempts) {
+      try {
+        // Use correct capitalization for mapping accessor
+        const cert = await certContract.Certificates(id);
+
+        // Check if certificate exists (non-empty name)
+        if (cert.name !== "") {
+          certificatesList.push({
+            id,
+            name: cert.name,
+            course: cert.course,
+            grade: cert.grade,
+            date: cert.date,
+          });
+        }
+        id++;
+      } catch (error) {
+        break; // Stop on error
+      }
+    }
+
+    setCertificates(certificatesList);
+  } catch (error) {
+    toast.error("Error fetching certificates: " + error.message);
+  } finally {
+    setIsCertificatesLoading(false);
+  }
+};
 
   const fetchProposalState = async (id, autoRefresh = false) => {
     try {
@@ -688,44 +677,28 @@ const App = () => {
   };
 
   // Update the event listener in the useEffect
-  useEffect(() => {
-    if (!certContract) return;
+ useEffect(() => {
+   if (!certContract) return;
 
-    const filter = certContract.filters.issued();
-    const listener = (event) => {
-      try {
-        // 1. Access raw event data
-        const rawCertId = event.args[0];
+   const filter = certContract.filters.issued();
+   const listener = (...args) => {
+     try {
+       // Handle both event formats
+       const event = args[0].args ? args[0] : { args: args };
 
-        // 2. Handle all possible types
-        const certId = rawCertId._isBigNumber
-          ? rawCertId.toNumber()
-          : parseInt(rawCertId.toString(), 10);
+       // Convert BigNumber to number safely
+       const certId = event.args[0].toNumber();
+       console.log("New certificate detected:", certId);
+       toast.success(`New certificate detected: ID ${certId}`);
+       fetchCertificates();
+     } catch (error) {
+       console.error("Event processing error:", error);
+     }
+   };
 
-        // 3. Validate certificate ID
-        if (isNaN(certId)) {
-          throw new Error(`Invalid certificate ID: ${rawCertId}`);
-        }
-
-        console.log("Certificate event processed:", {
-          certId,
-          rawEvent: event,
-        });
-        toast.success(`New certificate detected: ID ${certId}`);
-        fetchCertificates();
-      } catch (error) {
-        console.error("Certificate event error:", {
-          error,
-          rawEvent: event,
-          certContract,
-        });
-        toast.error("Failed to process certificate event");
-      }
-    };
-
-    certContract.on(filter, listener);
-    return () => certContract.off(filter, listener);
-  }, [certContract]);
+   certContract.on(filter, listener);
+   return () => certContract.off(filter, listener);
+ }, [certContract]);
 
   useEffect(() => {
     const verifyOwnership = async () => {
@@ -804,7 +777,6 @@ const App = () => {
                 <option value="2">Abstain</option>
               </select>
             </div>
-
             <div className="mb-2">
               <label>Reason:</label>
               <input
@@ -815,7 +787,6 @@ const App = () => {
                 onChange={(e) => setVoteReason(e.target.value)}
               />
             </div>
-
             <button
               className="btn btn-success w-100 mb-2"
               onClick={voteOnProposal}
@@ -823,7 +794,6 @@ const App = () => {
             >
               {loading ? "Voting..." : "Vote"}
             </button>
-
             <button
               className="btn btn-warning w-100 mb-2"
               onClick={queueProposal}
@@ -831,7 +801,6 @@ const App = () => {
             >
               {loading ? "Queueing..." : "Queue Proposal"}
             </button>
-
             <button
               className="btn btn-danger w-100"
               onClick={executeProposal}
@@ -839,22 +808,29 @@ const App = () => {
             >
               {loading ? "Executing..." : "Execute Proposal"}
             </button>
-
+            // Add temporary debug button
             <button
-              className="btn btn-info"
+              className="btn btn-info mt-2"
               onClick={async () => {
                 const testId = 22; // Use your certificate ID
-                const cert = await certContract.certificates(testId);
-                console.log("Certificate Verification:", {
-                  exists: cert.name !== "",
-                  id: testId,
-                  name: cert.name,
-                  course: cert.course,
-                });
+                try {
+                  const cert = await certContract.Certificates(testId);
+                  console.log("Certificate Verification:", {
+                    exists: cert.name !== "",
+                    id: testId,
+                    name: cert.name,
+                    course: cert.course,
+                    grade: cert.grade,
+                    date: cert.date,
+                  });
+                } catch (error) {
+                  console.error(`Certificate ${testId} check failed:`, error);
+                }
               }}
             >
-              Verify Certificate
+              Debug Certificate
             </button>
+            
           </div>
 
           {proposalId && (
@@ -878,13 +854,15 @@ const App = () => {
             <ul className="list-group">
               {certificates.map((cert) => (
                 <li key={cert.id} className="list-group-item">
-                  <strong>ID {cert.id}:</strong> {cert.name}
-                  <br />
-                  Course: {cert.course}
-                  <br />
-                  Grade: {cert.grade}
-                  <br />
-                  Date: {cert.date} {/* Display raw date string */}
+                  <div className="d-flex justify-content-between">
+                    <strong>ID {cert.id}</strong>
+                    <span className="text-muted">{cert.date}</span>
+                  </div>
+                  <div className="mt-2">
+                    <div>Name: {cert.name}</div>
+                    <div>Course: {cert.course}</div>
+                    <div>Grade: {cert.grade}</div>
+                  </div>
                 </li>
               ))}
             </ul>
