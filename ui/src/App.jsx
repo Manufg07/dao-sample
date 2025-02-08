@@ -282,25 +282,9 @@
 
 // export default App;
 
-// import React from "react";
-// import Cert from "./components/Cert";
-// import Governor from "./components/Governor";
-// import Token from "./components/Token";
 
-// function App() {
-//   return (
-//     <div>
-//       <h1>DAO Frontend</h1>
-//       <Token />
-//       <Governor />
-//       <Cert />
-//     </div>
-//   );
-// }
+// App.jsx
 
-// export default App;
-
-// App.js
 import React, { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { contracts } from "./config/contractData";
@@ -321,6 +305,8 @@ const App = () => {
   const [voteOption, setVoteOption] = useState("1");
   const [voteReason, setVoteReason] = useState("");
   const [currentProposal, setCurrentProposal] = useState(null);
+  const [tokenBalance, setTokenBalance] = useState(0);
+  const [votingPower, setVotingPower] = useState(0);
 
   const [certificateData, setCertificateData] = useState({
     certId: "",
@@ -425,6 +411,56 @@ const App = () => {
     }
   };
 
+  // Add to useEffect initialization
+  const fetchTokenInfo = async () => {
+    if (signer && contracts.govToken) {
+      const userAddress = await signer.getAddress();
+      const tokenContract = new ethers.Contract(
+        contracts.govToken.address,
+        contracts.govToken.abi,
+        signer
+      );
+      const balance = await tokenContract.balanceOf(userAddress);
+      const votes = await tokenContract.getVotes(userAddress);
+      setTokenBalance(balance.toString());
+      setVotingPower(votes.toString());
+    }
+  };
+
+  // Add token management functions
+  const requestTokens = async () => {
+    try {
+      const tokenContract = new ethers.Contract(
+        contracts.govToken.address,
+        contracts.govToken.abi,
+        signer
+      );
+      const tx = await tokenContract.faucet();
+      await tx.wait();
+      toast.success("Tokens minted successfully!");
+      fetchTokenInfo();
+    } catch (error) {
+      toast.error("Failed to request tokens: " + error.message);
+    }
+  };
+
+  const delegateVotes = async () => {
+    try {
+      const tokenContract = new ethers.Contract(
+        contracts.govToken.address,
+        contracts.govToken.abi,
+        signer
+      );
+      const userAddress = await signer.getAddress();
+      const tx = await tokenContract.delegate(userAddress);
+      await tx.wait();
+      toast.success("Votes delegated successfully!");
+      fetchTokenInfo();
+    } catch (error) {
+      toast.error("Failed to delegate votes: " + error.message);
+    }
+  };
+
   const voteOnProposal = async () => {
     if (!signer) {
       toast.error("Wallet not connected. Please connect your wallet.");
@@ -497,122 +533,122 @@ const App = () => {
   };
 
   // Update executeProposal function
-const executeProposal = async () => {
-  if (!currentProposal) return toast.error("No proposal data found.");
+  const executeProposal = async () => {
+    if (!currentProposal) return toast.error("No proposal data found.");
 
-  try {
-    setLoading(true);
-
-    // 1. Verify pre-execution state
-    const preState = await governorContract.state(proposalId);
-    console.log("Pre-execution state:", Number(preState));
-
-    // 2. Execute proposal
-    const descriptionHash = ethers.keccak256(
-      ethers.toUtf8Bytes(currentProposal.description)
-    );
-
-    const calldata = certContract.interface.encodeFunctionData("issue", [
-      Number(currentProposal.certId),
-      currentProposal.name,
-      currentProposal.course,
-      currentProposal.grade,
-      currentProposal.date,
-    ]);
-
-    const tx = await governorContract.execute(
-      [contracts.cert.address],
-      [0],
-      [calldata],
-      descriptionHash,
-      { gasLimit: 1_000_000 }
-    );
-
-    // 3. Wait for confirmation
-    const receipt = await tx.wait(2);
-    console.log("Transaction confirmed:", receipt.status);
-
-    // 4. Verify post-execution state
-    const postState = await governorContract.state(proposalId);
-    console.log("Post-execution state:", Number(postState));
-
-    if (Number(postState) === 7) {
-      // 7 = Executed
-      toast.success("✅ Execution confirmed!");
-      await fetchCertificates();
-    } else {
-      toast.error("❌ State update failed");
-    }
-  } catch (error) {
-    console.error("Execution Error:", error);
-    toast.error(`Execution failed: ${error.code || error.message}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
-  // Enhanced event listener
-useEffect(() => {
-  if (!certContract) return;
-
-  const filter = certContract.filters.issued();
-  const listener = (...args) => {
     try {
-      // Handle different event formats
-      const event = args[0].args ? args[0] : { args: args };
+      setLoading(true);
 
-      // Convert BigNumber to number safely
-      const rawCertId = event.args[0];
-      const certId = parseInt(rawCertId.toString(), 10);
+      // 1. Verify pre-execution state
+      const preState = await governorContract.state(proposalId);
+      console.log("Pre-execution state:", Number(preState));
 
-      console.log("New certificate processed:", certId);
-      toast.success(`New certificate detected: ID ${certId}`);
-      fetchCertificates();
+      // 2. Execute proposal
+      const descriptionHash = ethers.keccak256(
+        ethers.toUtf8Bytes(currentProposal.description)
+      );
+
+      const calldata = certContract.interface.encodeFunctionData("issue", [
+        Number(currentProposal.certId),
+        currentProposal.name,
+        currentProposal.course,
+        currentProposal.grade,
+        currentProposal.date,
+      ]);
+
+      const tx = await governorContract.execute(
+        [contracts.cert.address],
+        [0],
+        [calldata],
+        descriptionHash,
+        { gasLimit: 1_000_000 }
+      );
+
+      // 3. Wait for confirmation
+      const receipt = await tx.wait(2);
+      console.log("Transaction confirmed:", receipt.status);
+
+      // 4. Verify post-execution state
+      const postState = await governorContract.state(proposalId);
+      console.log("Post-execution state:", Number(postState));
+
+      if (Number(postState) === 7) {
+        // 7 = Executed
+        toast.success("✅ Execution confirmed!");
+        await fetchCertificates();
+      } else {
+        toast.error("❌ State update failed");
+      }
     } catch (error) {
-      console.error("Event processing error:", error);
+      console.error("Execution Error:", error);
+      toast.error(`Execution failed: ${error.code || error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  certContract.on(filter, listener);
-  return () => certContract.off(filter, listener);
-}, [certContract]);
+  // Enhanced event listener
+  useEffect(() => {
+    if (!certContract) return;
+
+    const filter = certContract.filters.issued();
+    const listener = (...args) => {
+      try {
+        // Handle different event formats
+        const event = args[0].args ? args[0] : { args: args };
+
+        // Convert BigNumber to number safely
+        const rawCertId = event.args[0];
+        const certId = parseInt(rawCertId.toString(), 10);
+
+        console.log("New certificate processed:", certId);
+        toast.success(`New certificate detected: ID ${certId}`);
+        fetchCertificates();
+      } catch (error) {
+        console.error("Event processing error:", error);
+      }
+    };
+
+    certContract.on(filter, listener);
+    return () => certContract.off(filter, listener);
+  }, [certContract]);
 
   // Update fetchCertificates function
-const fetchCertificates = async () => {
-  setIsCertificatesLoading(true);
-  try {
-    const certificatesList = [];
-    let id = 1;
-    const maxAttempts = 100; // Adjust based on expected certificate count
+  const fetchCertificates = async () => {
+    setIsCertificatesLoading(true);
+    try {
+      const certificatesList = [];
+      let id = 1;
+      const maxAttempts = 100; // Adjust based on expected certificate count
 
-    while (id <= maxAttempts) {
-      try {
-        // Use correct capitalization for mapping accessor
-        const cert = await certContract.Certificates(id);
+      while (id <= maxAttempts) {
+        try {
+          // Use correct capitalization for mapping accessor
+          const cert = await certContract.Certificates(id);
 
-        // Check if certificate exists (non-empty name)
-        if (cert.name !== "") {
-          certificatesList.push({
-            id,
-            name: cert.name,
-            course: cert.course,
-            grade: cert.grade,
-            date: cert.date,
-          });
+          // Check if certificate exists (non-empty name)
+          if (cert.name !== "") {
+            certificatesList.push({
+              id,
+              name: cert.name,
+              course: cert.course,
+              grade: cert.grade,
+              date: cert.date,
+            });
+          }
+          id++;
+        } catch (error) {
+          break; // Stop on error
         }
-        id++;
-      } catch (error) {
-        break; // Stop on error
       }
-    }
 
-    setCertificates(certificatesList);
-  } catch (error) {
-    toast.error("Error fetching certificates: " + error.message);
-  } finally {
-    setIsCertificatesLoading(false);
-  }
-};
+      setCertificates(certificatesList);
+    } catch (error) {
+      toast.error("Error fetching certificates: " + error.message);
+    } finally {
+      setIsCertificatesLoading(false);
+    }
+  };
 
   const fetchProposalState = async (id, autoRefresh = false) => {
     try {
@@ -653,52 +689,50 @@ const fetchCertificates = async () => {
     }
   };
 
-  const checkVotingPower = async () => {
-    try {
-      const tokenContract = new ethers.Contract(
-        contracts.govToken.address,
-        contracts.govToken.abi,
-        signer
-      );
+const checkVotingPower = async () => {
+  try {
+    const tokenContract = new ethers.Contract(
+      contracts.govToken.address,
+      contracts.govToken.abi,
+      signer
+    );
+    const userAddress = await signer.getAddress();
+    const balance = await tokenContract.getVotes(userAddress);
 
-      const userAddress = await signer.getAddress();
-      const balance = await tokenContract.getVotes(userAddress);
-
-      if (!balance) {
-        toast.error("You have no voting power. Delegate your tokens first.");
-        return false;
-      }
-      return true;
-    } catch (error) {
-      console.error("Error checking voting power:", error);
-      toast.error("Failed to check voting power.");
+    if (balance <= 0) {
+      toast.error("Please delegate tokens to activate voting power");
       return false;
     }
-  };
-
+    return true;
+  } catch (error) {
+    toast.error("Error checking voting power");
+    return false;
+  }
+};
+  
   // Update the event listener in the useEffect
- useEffect(() => {
-   if (!certContract) return;
+  useEffect(() => {
+    if (!certContract) return;
 
-   const filter = certContract.filters.issued();
-   const listener = (...args) => {
-     try {
-       // Handle both event formats
-       const event = args[0].args ? args[0] : { args: args };
+    const filter = certContract.filters.issued();
+    const listener = (...args) => {
+      try {
+        // Handle both event formats
+        const event = args[0].args ? args[0] : { args: args };
 
-       // Convert BigNumber to number safely
-       const certId = event.args[0].toNumber();
-       console.log("New certificate detected:", certId);
-       toast.success(`New certificate detected: ID ${certId}`);
-       fetchCertificates();
-     } catch (error) {
-       console.error("Event processing error:", error);
-     }
-   };
+        // Convert BigNumber to number safely
+        const certId = event.args[0].toNumber();
+        console.log("New certificate detected:", certId);
+        toast.success(`New certificate detected: ID ${certId}`);
+        fetchCertificates();
+      } catch (error) {
+        console.error("Event processing error:", error);
+      }
+    };
 
-   certContract.on(filter, listener);
-   return () => certContract.off(filter, listener);
- }, [certContract]);
+    certContract.on(filter, listener);
+    return () => certContract.off(filter, listener);
+  }, [certContract]);
 
   useEffect(() => {
     const verifyOwnership = async () => {
@@ -808,7 +842,8 @@ const fetchCertificates = async () => {
             >
               {loading ? "Executing..." : "Execute Proposal"}
             </button>
-            // Add temporary debug button
+
+            {/* Add temporary debug button */}
             <button
               className="btn btn-info mt-2"
               onClick={async () => {
@@ -830,7 +865,26 @@ const fetchCertificates = async () => {
             >
               Debug Certificate
             </button>
-            
+
+            <div className="mt-3">
+              <h4>Your Voting Power</h4>
+              <p>Token Balance: {tokenBalance}</p>
+              <p>Voting Power: {votingPower}</p>
+              <button
+                className="btn btn-secondary mb-2"
+                onClick={requestTokens}
+                disabled={!signer || tokenBalance > 0}
+              >
+                Request Tokens
+              </button>
+              <button
+                className="btn btn-info"
+                onClick={delegateVotes}
+                disabled={!signer || votingPower > 0}
+              >
+                Delegate Votes to Yourself
+              </button>
+            </div>
           </div>
 
           {proposalId && (
