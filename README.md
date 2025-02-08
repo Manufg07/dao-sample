@@ -1,5 +1,12 @@
 # dao-1
 
+
+## 🚀 Live Demo
+
+Experience the power of **Peer2play** in action! Try out the live version of the app and explore its features:
+
+[**Live Demo**](https://dao-sample-vyn1.vercel.app/)
+
 ## Git Commands
 
 ```
